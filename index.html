@@ -56,6 +56,17 @@
             max-width: 300px;
             display: none;
         }
+        .structure-preview {
+            font-family: 'Courier New', monospace;
+            white-space: pre;
+            overflow-x: auto;
+            background-color: #f8fafc;
+            padding: 12px;
+            border-radius: 6px;
+            border: 1px solid #e2e8f0;
+            font-size: 14px;
+            line-height: 1.5;
+        }
     </style>
 </head>
 <body class="bg-gray-100 min-h-screen">
@@ -125,11 +136,14 @@
 
             <!-- Content Area -->
             <div class="bg-white rounded-lg shadow-md p-6">
-                <div class="flex items-center justify-between mb-4">
+                <div class="flex flex-wrap items-center justify-between mb-4 gap-2">
                     <h3 class="text-lg font-semibold text-gray-700">
                         <i class="fas fa-folder-open mr-2"></i>Konten Zip
                     </h3>
-                    <div class="space-x-2">
+                    <div class="flex flex-wrap gap-2">
+                        <button id="importStructureBtn" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors">
+                            <i class="fas fa-code-branch mr-2"></i>Impor Struktur
+                        </button>
                         <button id="addFileBtn" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors">
                             <i class="fas fa-file-plus mr-2"></i>Tambah File
                         </button>
@@ -218,6 +232,27 @@
         </div>
     </div>
 
+    <!-- Import Structure Modal -->
+    <div id="importStructureModal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50 modal-backdrop">
+        <div class="bg-white rounded-lg p-6 max-w-4xl w-full mx-4 max-h-[90vh] overflow-y-auto">
+            <h3 class="text-xl font-semibold text-gray-800 mb-4">
+                <i class="fas fa-code-branch mr-2"></i>Impor Struktur Folder
+            </h3>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Tempel Struktur Folder</label>
+                <textarea id="structureInput" rows="15" class="code-editor w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Tempel struktur folder di sini..."></textarea>
+            </div>
+            <div class="mb-4">
+                <p class="text-sm text-gray-600 mb-2">Preview:</p>
+                <div id="structurePreview" class="structure-preview">Struktur akan muncul di sini...</div>
+            </div>
+            <div class="flex justify-end space-x-2">
+                <button id="cancelImportStructure" class="px-4 py-2 text-gray-600 hover:text-gray-800">Batal</button>
+                <button id="confirmImportStructure" class="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition-colors">Impor</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Success Notification -->
     <div id="successNotification" class="fixed bottom-4 right-4 bg-green-600 text-white px-6 py-4 rounded-lg shadow-lg hidden transform transition-all duration-300">
         <div class="flex items-center">
@@ -275,6 +310,7 @@
         const newZipModal = document.getElementById('newZipModal');
         const addFileModal = document.getElementById('addFileModal');
         const addFolderModal = document.getElementById('addFolderModal');
+        const importStructureModal = document.getElementById('importStructureModal');
         const successNotification = document.getElementById('successNotification');
         const warningNotification = document.getElementById('warningNotification');
 
@@ -283,6 +319,7 @@
         document.getElementById('backToListBtn').addEventListener('click', showZipList);
         document.getElementById('addFileBtn').addEventListener('click', () => showModal(addFileModal));
         document.getElementById('addFolderBtn').addEventListener('click', () => showModal(addFolderModal));
+        document.getElementById('importStructureBtn').addEventListener('click', () => showModal(importStructureModal));
         document.getElementById('downloadZipBtn').addEventListener('click', downloadCurrentZip);
         document.getElementById('clearStorageBtn').addEventListener('click', clearAllStorage);
         document.getElementById('debugBtn').addEventListener('click', toggleDebug);
@@ -294,6 +331,11 @@
         document.getElementById('confirmAddFile').addEventListener('click', addFile);
         document.getElementById('cancelAddFolder').addEventListener('click', () => hideModal(addFolderModal));
         document.getElementById('confirmAddFolder').addEventListener('click', addFolder);
+        document.getElementById('cancelImportStructure').addEventListener('click', () => hideModal(importStructureModal));
+        document.getElementById('confirmImportStructure').addEventListener('click', importStructure);
+
+        // Structure input preview
+        document.getElementById('structureInput').addEventListener('input', updateStructurePreview);
 
         function toggleDebug() {
             const debugPanel = document.getElementById('debugPanel');
@@ -604,7 +646,7 @@
                             <span class="font-medium text-gray-700">${file}</span>
                         </div>
                         <div class="flex space-x-2">
-                            <button onclick="editFile('${file}')" class="text-green-600 hover:text-green-700">
+                            <button onclick="editFile('${file}')" class="text-green-600 hover:text-gray-700">
                                 <i class="fas fa-edit"></i>
                             </button>
                             <button onclick="deleteItem('${file}', false)" class="text-red-600 hover:text-red-700">
@@ -749,6 +791,148 @@
             setTimeout(() => {
                 warningNotification.classList.add('hidden');
             }, 5000);
+        }
+
+        // Structure import functions
+        function updateStructurePreview() {
+            const structureText = document.getElementById('structureInput').value;
+            const preview = document.getElementById('structurePreview');
+            
+            if (!structureText.trim()) {
+                preview.textContent = 'Struktur akan muncul di sini...';
+                return;
+            }
+            
+            try {
+                const structure = parseStructure(structureText);
+                preview.textContent = renderStructurePreview(structure);
+            } catch (error) {
+                preview.textContent = `Error: ${error.message}`;
+            }
+        }
+
+        function parseStructure(text) {
+            const lines = text.split('\n').filter(line => line.trim());
+            const structure = [];
+            const stack = [{ level: -1, children: structure }];
+            
+            for (const line of lines) {
+                // Count indentation (each level is 4 spaces or 1 tab)
+                const indentMatch = line.match(/^(\s*)/);
+                const indent = indentMatch ? indentMatch[1].replace(/\t/g, '    ').length : 0;
+                const level = Math.floor(indent / 4);
+                
+                // Extract item name (remove ├──, └──, and / for folders)
+                let name = line.replace(/^\s*[├└][──]+/, '').trim();
+                const isFolder = name.endsWith('/');
+                if (isFolder) {
+                    name = name.slice(0, -1);
+                }
+                
+                // Create item object
+                const item = {
+                    name,
+                    isFolder,
+                    children: isFolder ? [] : null
+                };
+                
+                // Find parent (last item with level = current level - 1)
+                while (stack.length > 1 && stack[stack.length - 1].level >= level) {
+                    stack.pop();
+                }
+                
+                // Add to parent's children
+                const parent = stack[stack.length - 1];
+                parent.children.push(item);
+                
+                // If it's a folder, push to stack
+                if (isFolder) {
+                    stack.push({ level, children: item.children });
+                }
+            }
+            
+            return structure;
+        }
+
+        function renderStructurePreview(structure, prefix = '') {
+            let result = '';
+            
+            for (let i = 0; i < structure.length; i++) {
+                const item = structure[i];
+                const isLast = i === structure.length - 1;
+                const connector = isLast ? '└── ' : '├── ';
+                
+                result += prefix + connector + item.name + (item.isFolder ? '/' : '') + '\n';
+                
+                if (item.isFolder && item.children.length > 0) {
+                    const childPrefix = prefix + (isLast ? '    ' : '│   ');
+                    result += renderStructurePreview(item.children, childPrefix);
+                }
+            }
+            
+            return result;
+        }
+
+        function importStructure() {
+            const structureText = document.getElementById('structureInput').value.trim();
+            
+            if (!structureText) {
+                alert('Silakan tempel struktur folder terlebih dahulu');
+                return;
+            }
+            
+            try {
+                const structure = parseStructure(structureText);
+                debug(`Mengimpor struktur dengan ${countItems(structure)} item`);
+                
+                // Create the structure in the current zip
+                const zip = zipFiles[currentZip];
+                let currentFolder = zip;
+                
+                // Navigate to current path
+                for (const folder of currentPath) {
+                    currentFolder = currentFolder.folder(folder);
+                }
+                
+                // Add all items recursively
+                addItemsToFolder(currentFolder, structure);
+                
+                hideModal(importStructureModal);
+                document.getElementById('structureInput').value = '';
+                document.getElementById('structurePreview').textContent = 'Struktur akan muncul di sini...';
+                
+                saveToStorage();
+                updateContentList();
+                showSuccess(`Struktur folder berhasil diimpor (${countItems(structure)} item)`);
+            } catch (error) {
+                alert(`Error mengimpor struktur: ${error.message}`);
+                debug(`Error importStructure: ${error.message}`);
+            }
+        }
+
+        function countItems(structure) {
+            let count = 0;
+            for (const item of structure) {
+                count++;
+                if (item.isFolder && item.children) {
+                    count += countItems(item.children);
+                }
+            }
+            return count;
+        }
+
+        function addItemsToFolder(folder, items) {
+            for (const item of items) {
+                if (item.isFolder) {
+                    const newFolder = folder.folder(item.name);
+                    if (item.children && item.children.length > 0) {
+                        addItemsToFolder(newFolder, item.children);
+                    }
+                } else {
+                    // Add empty file
+                    folder.file(item.name, '');
+                }
+            }
         }
 
         // Initialize
